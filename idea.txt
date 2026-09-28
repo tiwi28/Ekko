@@ -1,0 +1,113 @@
+# SWE Daily — Scaffold Request
+
+I'm building a web app called SWE Daily. Right now I only want the BOILERPLATE
+and project skeleton set up. Do not implement business logic yet. Stub the
+functions with docstrings and TODOs so I can fill them in myself.
+
+## Context (so you scaffold the right shape)
+A daily tech news digest for aspiring SWEs, plus a simple todo list. One cron
+job per day pulls from Hacker News, RSS feeds, and Reddit, dedupes, tags by
+topic, scores, picks the top ~10, runs those through the Gemini API for a
+summary and a "why this matters for you" blurb, and writes that day's digest.
+Users pick topics, read the digest, then see their todo list underneath it.
+
+## Stack
+- Backend: FastAPI (Python 3.11+)
+- DB: Postgres (Neon), accessed with psycopg 3
+- Frontend: React + Vite
+- Cron: GitHub Actions workflow hitting a protected endpoint
+- Deploy: backend on Render, frontend on Vercel
+
+## Database rule (important)
+I'm building this to learn SQL. No ORM, no query builder. Use psycopg with raw
+SQL. Migrations are hand-written numbered .sql files. When you scaffold a query
+function, leave the SQL as a TODO comment rather than writing it for me, except
+where I ask below.
+
+## What I want you to generate
+
+### 1. Repo structure
+swe-daily/
+  backend/
+    app/
+      main.py              FastAPI app, CORS, router registration
+      config.py            env var loading via pydantic-settings
+      db.py                psycopg connection pool, get_conn() dependency
+      routers/
+        auth.py
+        digest.py
+        tasks.py
+        topics.py
+      ingestion/
+        base.py            Source adapter interface
+        hackernews.py
+        rss.py
+        reddit.py
+        normalize.py       common item shape
+        dedupe.py
+        tagging.py
+        scoring.py
+        enrich.py          Gemini summary + why-it-matters
+        run_daily.py       entrypoint the cron calls
+      models.py            plain dataclasses, not ORM models
+    migrations/
+      001_init.sql
+    tests/
+    requirements.txt
+    .env.example
+  frontend/
+    (Vite React app, minimal)
+  .github/workflows/daily.yml
+  README.md
+
+### 2. Working boilerplate
+- FastAPI app that starts, with a /health endpoint
+- psycopg connection pool set up properly with lifespan startup/shutdown
+- Config loading DATABASE_URL, GEMINI_API_KEY, REDDIT creds, CRON_SECRET,
+  JWT_SECRET from env
+- Router files with endpoint signatures and correct response models, but
+  bodies raising NotImplementedError or returning stub data
+- Source adapter base class with a fetch() signature, and the three adapter
+  files inheriting it as stubs
+- run_daily.py with the 7 pipeline steps as commented-out function calls in
+  order, so the flow is obvious
+- requirements.txt and .env.example filled in
+- GitHub Actions workflow that runs daily and POSTs to the cron endpoint with
+  the secret header
+
+### 3. Migration 001_init.sql — write this one FULLY
+Tables:
+  users(id, email unique, password_hash, created_at)
+  topics(id, slug unique, name)
+  user_topics(user_id, topic_id, pk on both)
+  sources(slug pk, name, weight)
+  items(id, source, external_id, url, title, raw_text, author,
+        published_at, engagement, raw_json jsonb, created_at)
+        unique(source, external_id)
+  item_topics(item_id, topic_id, pk on both)
+  digests(id, date unique)
+  digest_items(digest_id, item_id, topic_id, summary, why_it_matters, rank)
+  interactions(id, user_id, digest_item_id, action, created_at)
+  tasks(id, user_id, title, created_at, completed_at, carried_from_date)
+
+Requirements for this file:
+- Real foreign keys with deliberate ON DELETE behaviour
+- Indexes on: items(published_at), items(source, external_id) unique,
+  tasks(user_id, created_at), interactions(user_id, created_at),
+  digest_items(digest_id)
+- A short SQL comment above each index explaining which query it serves
+- A seed INSERT for the 5 topics (ai-ml, big-tech, startups-funding,
+  hiring-layoffs, dev-tools) and the source rows
+
+### 4. README
+Setup steps, how to run migrations, how to run the backend and frontend
+locally, and how to trigger the daily job manually.
+
+## What NOT to do
+- Don't implement the fetchers, dedupe, scoring, tagging, or Gemini call
+- Don't write the ranking query yet, I want to write that one myself
+- Don't add Redis, Docker, or auth libraries beyond a basic JWT helper
+- Don't add an ORM
+
+Start with the repo structure and migration file, then the backend boilerplate,
+then the frontend skeleton.

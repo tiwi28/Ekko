@@ -1,0 +1,24 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+
+body { margin: 0; }
+.container { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+header { display: flex; align-items: baseline; justify-content: space-between; }
+section { margin-top: 32px; }
+.muted, small { color: #777; }
+.error { color: #b00020; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid #ccc; background: white; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.chip.on { background: #1a1a1a; color: white; border-color: #1a1a1a; }
+
+.digest li { margin-bottom: 20px; }
+.why { background: #f0f4ff; padding: 8px; border-radius: 6px; }
+
+.row { display: flex; gap: 8px; }
+.row input { flex: 1; padding: 6px; }
+.tasks .done { text-decoration: line-through; color: #999; }

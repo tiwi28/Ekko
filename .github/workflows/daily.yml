@@ -1,0 +1,26 @@
+name: Daily digest
+
+on:
+  schedule:
+    # 11:00 UTC every day (GitHub cron is UTC and can run a few minutes late)
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}   # "Run workflow" button for manual triggers
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: POST to the cron endpoint
+        env:
+          # Repo -> Settings -> Secrets and variables -> Actions
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}   # e.g. https://ekko-api.onrender.com
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # Render's free tier sleeps; the first request can take ~1 min to wake it,
+          # hence the long max-time and retries.
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-delay 20 --retry-all-errors \
+            --max-time 120 \
+            -X POST "$BACKEND_URL/digest/run" \
+            -H "X-Cron-Secret: $CRON_SECRET"
