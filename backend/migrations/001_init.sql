@@ -1,15 +1,18 @@
 -- 001_init.sql
 -- Initial schema for Ekko.
 --
--- Run with:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_init.sql
+-- Applied by migrate.py, which runs this file and records version 001 in
+-- schema_migrations inside ONE transaction. That's why there is no
+-- BEGIN/COMMIT here: a COMMIT in the file would make the schema permanent
+-- before it was recorded, so a crash in between would leave the DB changed
+-- but "unmigrated" and the next run would fail on CREATE TABLE.
 --
 -- Conventions
 --   * Surrogate keys are BIGINT GENERATED ALWAYS AS IDENTITY (the modern
 --     replacement for SERIAL).
 --   * All timestamps are TIMESTAMPTZ and stored in UTC.
+--   * "Today" means the current UTC date for now (no per-user timezone yet).
 --   * ON DELETE behaviour is chosen per FK and explained inline.
-
-BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- Users & preferences
@@ -24,6 +27,24 @@ CREATE TABLE users (
     CONSTRAINT users_email_lowercase CHECK (email = lower(email))
 );
 
+CREATE TABLE sessions (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- CASCADE: a session is meaningless without its user; deleting the user
+    -- logs them out everywhere.
+    user_id     BIGINT      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- SHA-256 hex of the raw cookie token; the raw token is never stored, so
+    -- a leaked DB dump can't be replayed as live sessions. A fast hash is
+    -- fine here (unlike passwords) because the token is 32 random bytes,
+    -- far too much entropy to brute-force.
+    -- The UNIQUE index serves the per-request auth lookup:
+    --   WHERE token_hash = $1 AND expires_at > now()
+    -- so no separate index on token_hash is needed.
+    token_hash  TEXT        NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT sessions_expires_after_created CHECK (expires_at > created_at)
+);
+
 CREATE TABLE topics (
     id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     slug  TEXT NOT NULL UNIQUE,
@@ -34,6 +55,9 @@ CREATE TABLE user_topics (
     -- A preference row means nothing without its user or topic, so both CASCADE.
     user_id   BIGINT NOT NULL REFERENCES users (id)  ON DELETE CASCADE,
     topic_id  BIGINT NOT NULL REFERENCES topics (id) ON DELETE CASCADE,
+    -- The PK index leads with user_id, so it also serves GET /me/topics
+    -- (WHERE user_id = $1) and the delete half of PUT /me/topics
+    -- (DELETE ... WHERE user_id = $1). No separate user_id index needed.
     PRIMARY KEY (user_id, topic_id)
 );
 
@@ -143,10 +167,19 @@ CREATE INDEX items_published_at_idx ON items (published_at);
 -- ON CONFLICT needs a unique index/constraint on exactly these columns.
 CREATE UNIQUE INDEX items_source_external_id_key ON items (source, external_id);
 
--- Serves the todo list: "this user's tasks, newest first"
--- (WHERE user_id = $1 ORDER BY created_at DESC). The index can be scanned
--- backwards, so one index covers both ASC and DESC ordering.
+-- Serves GET /me/tasks, both halves:
+--   today:       WHERE user_id = $1 AND created_at >= <start of today UTC>
+--   carry-overs: WHERE user_id = $1 AND created_at <  <start of today UTC>
+--                  AND completed_at IS NULL
+--                ranked ROW_NUMBER() OVER (ORDER BY created_at DESC), keep <= 5
+-- Both are a range on created_at within one user. The index can be scanned
+-- backwards, so it also serves the DESC ordering.
 CREATE INDEX tasks_user_id_created_at_idx ON tasks (user_id, created_at);
+
+-- Serves ON DELETE CASCADE from users (Postgres does NOT index FK columns
+-- automatically; without this, deleting a user scans all of sessions) and
+-- a future "log out everywhere" (DELETE FROM sessions WHERE user_id = $1).
+CREATE INDEX sessions_user_id_idx ON sessions (user_id);
 
 -- Serves per-user activity lookups: "what has this user clicked/dismissed
 -- recently?" (WHERE user_id = $1 AND created_at >= ...), e.g. for hiding
@@ -173,5 +206,3 @@ INSERT INTO sources (slug, name, weight) VALUES
     ('hackernews', 'Hacker News', 1.00),
     ('rss',        'RSS Feeds',   1.00),
     ('reddit',     'Reddit',      0.80);
-
-COMMIT;
